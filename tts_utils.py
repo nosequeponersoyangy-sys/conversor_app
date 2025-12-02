@@ -4,7 +4,6 @@ import edge_tts
 import tempfile
 import os
 import streamlit as st
-from pydub import AudioSegment
 from ocr_utils import limpiar_texto # Importar la función de limpieza
 
 VOCES = {
@@ -26,38 +25,49 @@ async def generar_audio_async(texto_limpio, voz_codigo, pydub_ok):
     MAX_CHARS = 8000
     
     try:
-        if len(texto_limpio) > MAX_CHARS and pydub_ok:
+        # Importar pydub de forma perezosa para evitar fallos en import global
+        AudioSegment = None
+        if pydub_ok:
+            try:
+                from pydub import AudioSegment as _AudioSegment
+                AudioSegment = _AudioSegment
+            except Exception as ie:
+                # Si falla la importación, desactivar funcionalidades relacionadas
+                st.warning(f"Advertencia: falló la importación de pydub ({ie}). Se usará modo sin unión de partes.")
+                AudioSegment = None
+
+        if len(texto_limpio) > MAX_CHARS and AudioSegment is not None:
             st.info(f"El texto es largo ({len(texto_limpio):,} caracteres). Dividiendo para unificar el audio...")
-            
+
             # Dividir por bloques de caracteres, no por oraciones, para Edge TTS
             partes = [texto_limpio[i:i + MAX_CHARS] for i in range(0, len(texto_limpio), MAX_CHARS)]
             audio_completo = AudioSegment.empty()
-            
+
             # Generar y unir partes
             for i, parte in enumerate(partes):
                 st.text(f"Procesando fragmento {i+1}/{len(partes)}...")
                 comunicador = edge_tts.Communicate(parte, voz_codigo)
                 ruta_parte = f"{ruta_final}_parte{i}.mp3"
                 await comunicador.save(ruta_parte) # Bloquea el thread hasta que se guarda
-                
+
                 audio = AudioSegment.from_mp3(ruta_parte)
                 audio_completo += audio
                 os.remove(ruta_parte)
-            
+
             audio_completo.export(ruta_final, format="mp3")
-            
+
         else:
-            if len(texto_limpio) > MAX_CHARS and not pydub_ok:
-                st.warning(f"pydub no está instalado. Limitando a los primeros {MAX_CHARS} caracteres.")
+            if len(texto_limpio) > MAX_CHARS and AudioSegment is None:
+                st.warning(f"pydub no está disponible. Limitando a los primeros {MAX_CHARS} caracteres.")
                 texto_a_tts = texto_limpio[:MAX_CHARS]
             else:
                 texto_a_tts = texto_limpio
-                
+
             comunicador = edge_tts.Communicate(texto_a_tts, voz_codigo)
             await comunicador.save(ruta_final)
-        
+
         return ruta_final
-        
+
     except Exception as e:
         st.error(f"Error generando audio: {e}")
         # Limpieza si falla
