@@ -1,0 +1,7 @@
+streamlit
+PyMuPDF
+pytesseract
+Pillow
+edge-tts
+python-docx
+pydub
