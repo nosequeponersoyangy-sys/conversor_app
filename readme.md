@@ -79,3 +79,29 @@ Tesseract + PIL: Endereza (Auto-Rotación) y recorta las imágenes (Doble Págin
 Edge-TTS: Convierte el texto extraído en una narración con voces neuronales (similar a los audios de ChatGPT o NotebookLM).
 
 Módulo re: Limpia el texto para asegurar una lectura fluida, eliminando las pausas de "hipo" causadas por los saltos de línea del OCR.
+
+## Despliegue en Streamlit Community Cloud
+
+Para que la app funcione correctamente en Streamlit Cloud (incluyendo OCR y audio largo) añade los siguientes archivos al repositorio:
+
+- `requirements.txt`: ya contiene las dependencias Python (fíjalas si necesitas reproducibilidad).
+- `packages.txt`: listado de paquetes del sistema que Streamlit Cloud instalará con `apt` durante el build.
+
+Contenido recomendado para `packages.txt`:
+
+```
+ffmpeg
+tesseract-ocr
+tesseract-ocr-spa
+tesseract-ocr-eng
+```
+
+Con esto, Streamlit instalará `ffmpeg` y Tesseract (incluyendo datos para español e inglés) durante el despliegue, y las funciones de OCR y pydub funcionarán correctamente.
+
+Pasos rápidos para deploy:
+
+1. Sube el repo a GitHub (ya lo tienes en `main`).
+2. Entra en https://streamlit.io/cloud y crea un nuevo deploy apuntando al repo y branch `main`.
+3. Streamlit instalará `packages.txt` y `requirements.txt` automáticamente. Si la instalación falla, revisa los logs del deploy para ver el paquete que falta.
+
+Si prefieres que lo configure yo (añadir `packages.txt`, fijar versiones y un breve README), ya lo hice y está commiteado en `main`.
