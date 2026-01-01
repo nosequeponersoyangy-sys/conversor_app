@@ -153,7 +153,9 @@ def extraer_texto_documento(archivo_subido):
             for pagina in doc:
                 texto_final += pagina.get_text() + "\n\n"
             doc.close()
-        
+            # Aplicar post-procesado para eliminar portada, índice y pies de página repetidos
+            texto_final = post_process_extracted_text(texto_final)
+
         return texto_final, nombre_original
         
     except ImportError as e:
@@ -229,6 +231,38 @@ def post_process_extracted_text(texto):
                 break
         # avanzar hasta que encontremos una línea vacía seguido de texto (evitar cortar en medio)
         combined = "\n".join(lines[start_idx:]).strip()
+
+    # 2b) Saltar front-matter/portada/metadata (páginas iniciales con palabras tipo 'Descargar', 'Autor', 'ISBN')
+    # Heurística: si las primeras N páginas (contiguas desde el inicio) contienen muchas líneas cortas
+    # y palabras clave típicas de portada/descarga, las saltamos hasta encontrar contenido principal.
+    keywords_front = [r'descargar', r'download', r'autor', r'isbn', r'editorial', r'copyright', r'copyright', r'all rights reserved', r'uploaded by']
+    pages_initial = [p for p in combined.split(sep)]
+    skip_upto = 0
+    for i, p in enumerate(pages_initial):
+        lines = [ln.strip() for ln in p.splitlines() if ln.strip()]
+        if not lines:
+            skip_upto = i + 1
+            continue
+        short_lines = sum(1 for ln in lines if len(ln) < 40)
+        key_count = 0
+        for ln in lines:
+            for kw in keywords_front:
+                if re.search(kw, ln, re.IGNORECASE):
+                    key_count += 1
+                    break
+
+        # Si la página tiene mayoría de líneas cortas y contiene al menos una keyword, la consideramos front-matter
+        if (short_lines / max(1, len(lines))) > 0.6 and key_count >= 1:
+            skip_upto = i + 1
+            continue
+        # Si encontramos una página con una línea larga (contenido) o con 'Capítulo' asumimos que empieza el libro
+        if any(re.search(r'cap[ií]tulo|capitulo|chapter|cap\.|chapter\s+1', ln, re.IGNORECASE) for ln in lines) or any(len(ln) > 120 for ln in lines):
+            break
+
+    if skip_upto > 0:
+        pages_after = pages_initial[skip_upto:]
+        if pages_after:
+            combined = sep.join(pages_after)
 
     # 3) Detectar captions de figuras en cada página y anteponer una nota breve
     pages2 = [p for p in combined.split(sep)]
