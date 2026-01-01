@@ -5,6 +5,7 @@ import tempfile
 import os
 import streamlit as st
 from ocr_utils import limpiar_texto # Importar la función de limpieza
+import sys
 
 VOCES = {
     "🇪🇸 Álvaro (España)": "es-ES-AlvaroNeural",
@@ -62,6 +63,29 @@ async def generar_audio_async(texto_limpio, voz_codigo, pydub_ok):
                 texto_a_tts = texto_limpio[:MAX_CHARS]
             else:
                 texto_a_tts = texto_limpio
+
+            # Si estamos en Windows y pyttsx3 está disponible, permitir usar la voz local de Windows
+            use_local_windows = (os.name == 'nt')
+            if use_local_windows:
+                try:
+                    import pyttsx3
+                    # Usar pyttsx3 para exportar a WAV y convertir si pydub está disponible
+                    engine = pyttsx3.init()
+                    ruta_wav = ruta_final + ".wav"
+                    engine.save_to_file(texto_a_tts, ruta_wav)
+                    engine.runAndWait()
+                    # Si pydub está disponible, convertir a mp3
+                    if AudioSegment is not None:
+                        audio = AudioSegment.from_wav(ruta_wav)
+                        audio.export(ruta_final, format="mp3")
+                        os.remove(ruta_wav)
+                    else:
+                        # Dejar WAV si no hay pydub
+                        ruta_final = ruta_wav
+                    return ruta_final
+                except Exception:
+                    # Si falla pyttsx3 o no está, caer a edge-tts
+                    pass
 
             comunicador = edge_tts.Communicate(texto_a_tts, voz_codigo)
             await comunicador.save(ruta_final)

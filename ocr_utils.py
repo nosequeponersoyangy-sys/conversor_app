@@ -7,6 +7,7 @@ import io
 import os
 import re
 import streamlit as st
+from collections import Counter
 
 # ================= CONFIGURACIÓN =================
 def configurar_tesseract():
@@ -112,7 +113,10 @@ def extraer_texto_pdf_ocr(archivo_pdf, es_doble_pagina=True, auto_rotar=True):
         doc.close()
         
         # Juntar todo el texto
-        return "\n\n[=== PAGINA SIGUIENTE ===]\n\n".join(texto_total)
+        texto_completo = "\n\n[=== PAGINA SIGUIENTE ===]\n\n".join(texto_total)
+        # Post-procesado: quitar cabeceras/pie de página repetidos, saltar índice y detectar captions
+        texto_procesado = post_process_extracted_text(texto_completo)
+        return texto_procesado
     except Exception as e:
         st.error(f"Error al abrir o procesar PDF: {e}")
         return ""
@@ -158,6 +162,88 @@ def extraer_texto_documento(archivo_subido):
     except Exception as e:
         st.error(f"Error leyendo archivo {nombre_original}: {e}")
         return "", ""
+
+
+def post_process_extracted_text(texto):
+    """Limpieza adicional tras OCR para: 1) eliminar números de página y encabezados repetidos,
+    2) saltar el índice si existe, 3) intentar detectar captions de figuras y anteponer una nota.
+    Heurísticas simples para mejorar la lectura por TTS.
+    """
+    if not texto:
+        return ""
+
+    # Separador de páginas usado en la extracción
+    sep = "\n\n[=== PAGINA SIGUIENTE ===]\n\n"
+    pages = [p.strip() for p in texto.split(sep)]
+    if not pages:
+        return texto
+
+    # 1) Detectar encabezados repetidos (títulos de página que aparecen en muchas páginas)
+    first_lines = []
+    for p in pages:
+        for ln in p.splitlines():
+            if ln.strip():
+                first_lines.append(ln.strip())
+                break
+    counts = Counter(first_lines)
+    repeated_headers = set([k for k, v in counts.items() if v >= max(2, int(len(pages) * 0.3))])
+
+    cleaned_pages = []
+    for p in pages:
+        lines = p.splitlines()
+        # eliminar encabezado repetido al inicio de página
+        if lines and lines[0].strip() in repeated_headers:
+            lines = lines[1:]
+
+        # eliminar líneas que parecen números de página o numeración roman
+        new_lines = []
+        for ln in lines:
+            s = ln.strip()
+            if re.match(r'^(p(á|a)gina\b|pag\.|page\b)?\s*\d+\s*$', s, re.IGNORECASE):
+                continue
+            if re.match(r'^[IVXLCM]+\s*$', s):
+                continue
+            # líneas con muy pocos caracteres y solo números
+            if re.match(r'^\d{1,3}$', s):
+                continue
+            new_lines.append(ln)
+
+        cleaned_pages.append("\n".join(new_lines).strip())
+
+    combined = sep.join(cleaned_pages)
+
+    # 2) Saltar índice/tabla de contenido si existe
+    lower = combined.lower()
+    index_kw = None
+    for kw in ["índice", "indice", "tabla de contenidos", "contenido"]:
+        if kw in lower:
+            index_kw = kw
+            break
+    if index_kw:
+        # buscar la línea que contiene la palabra clave y cortar desde la siguiente línea
+        lines = combined.splitlines()
+        start_idx = 0
+        for i, ln in enumerate(lines):
+            if index_kw in ln.lower():
+                start_idx = i + 1
+                break
+        # avanzar hasta que encontremos una línea vacía seguido de texto (evitar cortar en medio)
+        combined = "\n".join(lines[start_idx:]).strip()
+
+    # 3) Detectar captions de figuras en cada página y anteponer una nota breve
+    pages2 = [p for p in combined.split(sep)]
+    processed_pages = []
+    for p in pages2:
+        caption = None
+        for ln in p.splitlines():
+            if re.search(r'\b(figura|fig\.|gráfic|grafico|imagen|fig)\b', ln, re.IGNORECASE):
+                caption = ln.strip()
+                break
+        if caption:
+            p = f"Descripción de la figura: {caption}\n\n" + p
+        processed_pages.append(p.strip())
+
+    return sep.join(processed_pages).strip()
 
 # ================= VERIFICACIÓN DE LIBRERÍAS =================
 def verificar_librerias():
